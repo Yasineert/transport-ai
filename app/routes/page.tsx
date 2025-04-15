@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Bus, Filter, MoreHorizontal, Plus, Search } from "lucide-react"
+import { Bus, Filter, LogOut, MoreHorizontal, Plus, Search } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { fetchRoutes, type RouteInfo } from "@/lib/api"
+import { fetchRoutes, addRoute, type RouteInfo, type RouteCreationRequest, getAuthToken, removeAuthToken } from "@/lib/api"
 import {
   Dialog,
   DialogContent,
@@ -30,14 +30,15 @@ export default function RoutesPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [addRouteDialogOpen, setAddRouteDialogOpen] = useState(false)
-  const [newRoute, setNewRoute] = useState({
-    name: "",
-    type: "Bus" as RouteInfo["type"],
-    frequency: "",
-    activeVehicles: 0,
-    dailyPassengers: 0,
+  const [newRoute, setNewRoute] = useState<RouteCreationRequest>({
+    depart: "",
+    destination: "",
+    distance: 0,
+    duree: 0,
+    type: "Bus"
   })
   const [submitting, setSubmitting] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   useEffect(() => {
     const loadData = async () => {
@@ -57,21 +58,29 @@ export default function RoutesPage() {
     loadData()
   }, [])
 
+  useEffect(() => {
+    // Check if the user is authenticated
+    const token = getAuthToken()
+    setIsAuthenticated(!!token)
+  }, [])
+
   const filteredRoutes = routes.filter((route) => {
     if (searchQuery) {
-      const query = searchQuery.toLowerCase()
+      const query = searchQuery.toLowerCase();
       return (
-        route.id.toLowerCase().includes(query) ||
-        route.name.toLowerCase().includes(query) ||
-        route.type.toLowerCase().includes(query) ||
-        route.frequency.toLowerCase().includes(query)
-      )
+        (typeof route.id === 'string' ? route.id.toLowerCase().includes(query) : String(route.id).includes(query)) ||
+        (route.name?.toLowerCase().includes(query) || false) ||
+        (route.type?.toLowerCase().includes(query) || false) ||
+        (route.frequency?.toLowerCase().includes(query) || false) ||
+        route.depart.toLowerCase().includes(query) ||
+        route.destination.toLowerCase().includes(query)
+      );
     }
-    return true
-  })
+    return true;
+  });
 
   const handleAddRoute = async () => {
-    if (!newRoute.name || !newRoute.frequency) {
+    if (!newRoute.depart || !newRoute.destination) {
       toast({
         title: "Missing information",
         description: "Please fill in all required fields.",
@@ -82,29 +91,34 @@ export default function RoutesPage() {
 
     try {
       setSubmitting(true)
-      // In a real app, this would call an API to add the route
-      // For now, we'll just update the local state
-      const newRouteWithId: RouteInfo = {
-        ...newRoute,
-        id: `R${Math.floor(Math.random() * 1000)}`,
-        status: "Active",
-      }
-
+      
+      // Call the backend API to add the route
+      const createdRoute = await addRoute(newRoute)
+      
       // Update local state
-      setRoutes((prev) => [...prev, newRouteWithId])
+      setRoutes((prev) => [...prev, {
+        ...createdRoute,
+        name: `${createdRoute.depart} - ${createdRoute.destination}`,
+        type: createdRoute.type || "Bus",
+        status: "Active",
+        frequency: "Every 30 min",
+        activeVehicles: 0,
+        dailyPassengers: 0
+      }])
 
       toast({
         title: "Route added",
-        description: `Route ${newRouteWithId.name} has been added.`,
+        description: `Route ${createdRoute.depart} to ${createdRoute.destination} has been added.`,
       })
 
       setAddRouteDialogOpen(false)
+      // Reset form with all required fields including type
       setNewRoute({
-        name: "",
-        type: "Bus",
-        frequency: "",
-        activeVehicles: 0,
-        dailyPassengers: 0,
+        depart: "",
+        destination: "",
+        distance: 0,
+        duree: 0,
+        type: "Bus"
       })
     } catch (err) {
       console.error("Failed to add route:", err)
@@ -116,6 +130,15 @@ export default function RoutesPage() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleLogout = () => {
+    removeAuthToken()
+    window.location.href = "/login"
+  }
+
+  const handleLogin = () => {
+    window.location.href = "/login"
   }
 
   const renderContent = () => {
@@ -175,14 +198,14 @@ export default function RoutesPage() {
                 filteredRoutes.map((route) => (
                   <TableRow key={route.id}>
                     <TableCell className="font-medium">{route.id}</TableCell>
-                    <TableCell>{route.name}</TableCell>
-                    <TableCell>{route.type}</TableCell>
+                    <TableCell>{route.name || `${route.depart} - ${route.destination}`}</TableCell>
+                    <TableCell>{route.type || "Bus"}</TableCell>
                     <TableCell>
-                      <Badge className="bg-green-500">{route.status}</Badge>
+                      <Badge className="bg-green-500">{route.status || "Active"}</Badge>
                     </TableCell>
-                    <TableCell>{route.frequency}</TableCell>
-                    <TableCell>{route.activeVehicles}</TableCell>
-                    <TableCell>{route.dailyPassengers.toLocaleString()}</TableCell>
+                    <TableCell>{route.frequency || "N/A"}</TableCell>
+                    <TableCell>{route.activeVehicles || 0}</TableCell>
+                    <TableCell>{(route.dailyPassengers !== undefined) ? route.dailyPassengers.toLocaleString() : '0'}</TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -290,6 +313,22 @@ export default function RoutesPage() {
           <Link href="/settings" className="text-sm font-medium text-muted-foreground">
             Settings
           </Link>
+          {isAuthenticated ? (
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1 text-sm font-medium text-rose-600 hover:text-rose-700"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+          ) : (
+            <button
+              onClick={handleLogin}
+              className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700"
+            >
+              Login
+            </button>
+          )}
         </nav>
       </header>
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
@@ -303,6 +342,13 @@ export default function RoutesPage() {
             Add New Route
           </Button>
         </div>
+        {!isAuthenticated && (
+          <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
+            <p className="text-sm text-yellow-700">
+              You are viewing mock data. <a href="/signup" className="font-medium underline">Login</a> to access real data from the backend.
+            </p>
+          </div>
+        )}
         <div className="flex items-center gap-2 mb-4">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -331,15 +377,27 @@ export default function RoutesPage() {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="route-name" className="text-right">
-                Route Name
+              <Label htmlFor="depart" className="text-right">
+                Departure
               </Label>
               <Input
-                id="route-name"
-                value={newRoute.name}
-                onChange={(e) => setNewRoute({ ...newRoute, name: e.target.value })}
+                id="depart"
+                value={newRoute.depart}
+                onChange={(e) => setNewRoute({ ...newRoute, depart: e.target.value })}
                 className="col-span-3"
-                placeholder="e.g. Airport - City Center"
+                placeholder="e.g. Jemaa el-Fnaa"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="destination" className="text-right">
+                Destination
+              </Label>
+              <Input
+                id="destination"
+                value={newRoute.destination}
+                onChange={(e) => setNewRoute({ ...newRoute, destination: e.target.value })}
+                className="col-span-3"
+                placeholder="e.g. Gueliz"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -349,47 +407,38 @@ export default function RoutesPage() {
               <select
                 id="route-type"
                 value={newRoute.type}
-                onChange={(e) => setNewRoute({ ...newRoute, type: e.target.value as RouteInfo["type"] })}
+                onChange={(e) => setNewRoute({ ...newRoute, type: e.target.value })}
                 className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="Bus">Bus</option>
                 <option value="Taxi">Taxi</option>
+                <option value="Train">Train</option>
               </select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="route-frequency" className="text-right">
-                Frequency
+              <Label htmlFor="distance" className="text-right">
+                Distance (km)
               </Label>
               <Input
-                id="route-frequency"
-                value={newRoute.frequency}
-                onChange={(e) => setNewRoute({ ...newRoute, frequency: e.target.value })}
+                id="distance"
+                type="number"
+                value={newRoute.distance.toString()}
+                onChange={(e) => setNewRoute({ ...newRoute, distance: parseFloat(e.target.value) || 0 })}
                 className="col-span-3"
-                placeholder="e.g. Every 15 min"
+                placeholder="e.g. 5.2"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="active-vehicles" className="text-right">
-                Active Vehicles
+              <Label htmlFor="duree" className="text-right">
+                Duration (min)
               </Label>
               <Input
-                id="active-vehicles"
+                id="duree"
                 type="number"
-                value={newRoute.activeVehicles.toString()}
-                onChange={(e) => setNewRoute({ ...newRoute, activeVehicles: Number.parseInt(e.target.value) || 0 })}
+                value={newRoute.duree.toString()}
+                onChange={(e) => setNewRoute({ ...newRoute, duree: parseInt(e.target.value) || 0 })}
                 className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="daily-passengers" className="text-right">
-                Est. Daily Passengers
-              </Label>
-              <Input
-                id="daily-passengers"
-                type="number"
-                value={newRoute.dailyPassengers.toString()}
-                onChange={(e) => setNewRoute({ ...newRoute, dailyPassengers: Number.parseInt(e.target.value) || 0 })}
-                className="col-span-3"
+                placeholder="e.g. 20"
               />
             </div>
           </div>

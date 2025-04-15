@@ -1,29 +1,30 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Eye, EyeOff, Smartphone } from "lucide-react"
+import { Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
+import { Role } from "@/types/auth"
+import { setAuthToken } from "@/lib/api"
 
-export default function SignupPage() {
+export default function AuthPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [step, setStep] = useState(1) // Step 1: Account details, Step 2: Phone verification
+  const [activeTab, setActiveTab] = useState("login")
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
     password: "",
     confirmPassword: "",
-    role: "staff",
-    phone: "", // Added phone field
+    role: Role.USER,
   })
   const router = useRouter()
   const { toast } = useToast()
@@ -34,11 +35,80 @@ export default function SignupPage() {
   }
 
   const handleRoleChange = (value: string) => {
-    setFormData((prev) => ({ ...prev, role: value }))
+    setFormData((prev) => ({ ...prev, role: value as Role }))
   }
 
-  const handleSubmitDetails = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    setIsLoading(true)
+
+    try {
+      const response = await fetch('http://localhost:8081/api/v1/auth/authenticate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.message || 'Login failed')
+      }
+
+      const data = await response.json()
+      
+      // Check if we have a valid token
+      if (!data.token) {
+        throw new Error('No authentication token received')
+      }
+
+      // Set the auth token in both localStorage and cookies
+      setAuthToken(data.token)
+
+      // Get user info using the token
+      const userResponse = await fetch('http://localhost:8081/api/v1/auth/me', {
+        headers: {
+          'Authorization': `Bearer ${data.token}`
+        }
+      })
+
+      if (!userResponse.ok) {
+        throw new Error('Failed to get user information')
+      }
+
+      const userData = await userResponse.json()
+      
+      if (!userData.role) {
+        throw new Error('User role not found')
+      }
+
+      toast({
+        title: "Login successful",
+        description: "Welcome back!",
+      })
+
+      // Redirect to the appropriate dashboard based on role
+      const redirectPath = getDashboardPath(userData.role)
+      router.push(redirectPath)
+    } catch (error) {
+      console.error('Login error:', error)
+      toast({
+        title: "Login failed",
+        description: error instanceof Error ? error.message : "An error occurred during login",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
 
     // Validate passwords match
     if (formData.password !== formData.confirmPassword) {
@@ -47,50 +117,46 @@ export default function SignupPage() {
         description: "Please make sure your passwords match.",
         variant: "destructive",
       })
+      setIsLoading(false)
       return
     }
 
-    // Move to phone verification step
-    setStep(2)
-    toast({
-      title: "Account details saved",
-      description: "Please enter your phone number for verification",
-    })
-  }
-
-  const handleSubmitPhone = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-
     try {
-      // Validate phone number format (simple validation)
-      const phoneRegex = /^\+?[0-9]{10,15}$/
-      if (!phoneRegex.test(formData.phone)) {
-        toast({
-          title: "Invalid phone number",
-          description: "Please enter a valid phone number",
-          variant: "destructive",
-        })
-        setIsLoading(false)
-        return
-      }
-
-      // In a real app, this would send an SMS with a verification code
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-
-      toast({
-        title: "Verification code sent",
-        description: `We've sent a verification code to ${formData.phone}`,
+      const response = await fetch('http://localhost:8081/api/v1/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          fullName: formData.fullName,
+          role: formData.role,
+        }),
       })
 
-      // Redirect to verification page with user details
-      router.push(
-        `/verify?phone=${encodeURIComponent(formData.phone)}&name=${encodeURIComponent(formData.fullName)}&role=${encodeURIComponent(formData.role)}&mode=signup&redirectTo=${encodeURIComponent("/login")}`,
-      )
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.message || 'Registration failed')
+      }
+
+      const data = await response.json()
+      
+      // Set the auth token in both localStorage and cookies
+      setAuthToken(data.token)
+
+      toast({
+        title: "Account created successfully",
+        description: "Welcome to the system!",
+      })
+
+      // Redirect to the appropriate dashboard based on role
+      const redirectPath = getDashboardPath(formData.role)
+      router.push(redirectPath)
     } catch (error) {
       toast({
         title: "Registration failed",
-        description: "An error occurred during registration. Please try again.",
+        description: error instanceof Error ? error.message : "An error occurred during registration",
         variant: "destructive",
       })
     } finally {
@@ -98,184 +164,182 @@ export default function SignupPage() {
     }
   }
 
+  const getDashboardPath = (role: Role): string => {
+    switch (role) {
+      case "ADMINISTRATOR":
+        return '/'
+      case "FLEET_MANAGER":
+        return '/fleet/dashboard'
+      case "ROUTE_PLANNER":
+        return '/routes/dashboard'
+      case "ANALYST":
+        return '/analytics/dashboard'
+      case "USER":
+        return '/user/dashboard'
+      default:
+        return '/user/dashboard'
+    }
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Create an account</CardTitle>
+          <CardTitle className="text-2xl font-bold text-center">
+            {activeTab === "login" ? "Welcome back" : "Create an account"}
+          </CardTitle>
           <CardDescription className="text-center">
-            {step === 1 ? "Enter your information to create an account" : "Enter your phone number for verification"}
+            {activeTab === "login" 
+              ? "Enter your credentials to sign in" 
+              : "Enter your information to create an account"}
           </CardDescription>
         </CardHeader>
 
-        {step === 1 ? (
-          // Step 1: Account Details
-          <form onSubmit={handleSubmitDetails}>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="fullName">Full Name</Label>
-                <Input
-                  id="fullName"
-                  name="fullName"
-                  placeholder="John Doe"
-                  required
-                  value={formData.fullName}
-                  onChange={handleChange}
-                  disabled={isLoading}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="john.doe@example.com"
-                  required
-                  value={formData.email}
-                  onChange={handleChange}
-                  disabled={isLoading}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="role">Role</Label>
-                <Select value={formData.role} onValueChange={handleRoleChange} disabled={isLoading}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">Administrator</SelectItem>
-                    <SelectItem value="manager">Manager</SelectItem>
-                    <SelectItem value="driver">Driver</SelectItem>
-                    <SelectItem value="staff">Staff</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="login">Login</TabsTrigger>
+            <TabsTrigger value="signup">Sign Up</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="login">
+            <form onSubmit={handleLogin}>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
                   <Input
-                    id="password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="••••••••"
+                    id="email"
+                    name="email"
+                    type="email"
+                    placeholder="john.doe@example.com"
                     required
-                    value={formData.password}
-                    onChange={handleChange}
-                    disabled={isLoading}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                    onClick={() => setShowPassword(!showPassword)}
-                    disabled={isLoading}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4 text-gray-500" />
-                    ) : (
-                      <Eye className="h-4 w-4 text-gray-500" />
-                    )}
-                    <span className="sr-only">{showPassword ? "Hide password" : "Show password"}</span>
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <Input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  type="password"
-                  placeholder="••••••••"
-                  required
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  disabled={isLoading}
-                />
-              </div>
-            </CardContent>
-            <CardFooter className="flex flex-col space-y-4">
-              <Button type="submit" className="w-full">
-                <div className="flex items-center justify-center">Continue</div>
-              </Button>
-              <div className="text-center text-sm">
-                Already have an account?{" "}
-                <Link href="/login" className="font-medium text-emerald-600 hover:text-emerald-500">
-                  Sign in
-                </Link>
-              </div>
-            </CardFooter>
-          </form>
-        ) : (
-          // Step 2: Phone Verification
-          <form onSubmit={handleSubmitPhone}>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number</Label>
-                <div className="flex items-center">
-                  <Smartphone className="mr-2 h-4 w-4 text-gray-500" />
-                  <Input
-                    id="phone"
-                    name="phone"
-                    type="tel"
-                    placeholder="+212 600000000"
-                    required
-                    value={formData.phone}
+                    value={formData.email}
                     onChange={handleChange}
                     disabled={isLoading}
                   />
                 </div>
-                <p className="text-xs text-gray-500">We'll send a verification code to this number</p>
-              </div>
-            </CardContent>
-            <CardFooter className="flex flex-col space-y-4">
-              <div className="flex gap-3 w-full">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => setStep(1)}
-                  disabled={isLoading}
-                >
-                  Back
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={formData.password}
+                      onChange={handleChange}
+                      disabled={isLoading}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? "Signing in..." : "Sign in"}
                 </Button>
-                <Button type="submit" className="flex-1" disabled={isLoading}>
-                  {isLoading ? (
-                    <div className="flex items-center justify-center">
-                      <svg
-                        className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                      >
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                        ></circle>
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        ></path>
-                      </svg>
-                      Sending...
-                    </div>
-                  ) : (
-                    "Send Code"
-                  )}
+              </CardContent>
+            </form>
+          </TabsContent>
+
+          <TabsContent value="signup">
+            <form onSubmit={handleSignup}>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="fullName">Full Name</Label>
+                  <Input
+                    id="fullName"
+                    name="fullName"
+                    placeholder="John Doe"
+                    required
+                    value={formData.fullName}
+                    onChange={handleChange}
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    placeholder="john.doe@example.com"
+                    required
+                    value={formData.email}
+                    onChange={handleChange}
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="role">Role</Label>
+                  <Select value={formData.role} onValueChange={handleRoleChange} disabled={isLoading}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={Role.ADMINISTRATOR}>Administrator</SelectItem>
+                      <SelectItem value={Role.FLEET_MANAGER}>Fleet Manager</SelectItem>
+                      <SelectItem value={Role.ROUTE_PLANNER}>Route Planner</SelectItem>
+                      <SelectItem value={Role.ANALYST}>Analyst</SelectItem>
+                      <SelectItem value={Role.USER}>User</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={formData.password}
+                      onChange={handleChange}
+                      disabled={isLoading}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword">Confirm Password</Label>
+                  <Input
+                    id="confirmPassword"
+                    name="confirmPassword"
+                    type="password"
+                    required
+                    value={formData.confirmPassword}
+                    onChange={handleChange}
+                    disabled={isLoading}
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? "Creating account..." : "Create account"}
                 </Button>
-              </div>
-              <div className="text-center text-xs text-gray-500 mt-4">
-                <p>For demo purposes, any phone number will work.</p>
-              </div>
-            </CardFooter>
-          </form>
-        )}
+              </CardContent>
+            </form>
+          </TabsContent>
+        </Tabs>
       </Card>
     </div>
   )

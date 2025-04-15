@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { ArrowRight, Bus, Clock, MapPin, Users } from "lucide-react"
+import { ArrowRight, Bus, Clock, LogOut, MapPin, Users } from "lucide-react"
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Overview } from "@/components/overview"
@@ -36,6 +36,12 @@ export default function Dashboard() {
 
   // Sort bus stops by passenger volume (descending)
   const sortedBusStops = [...busStops].sort((a, b) => b.dailyPassengers - a.dailyPassengers).slice(0, 5)
+
+  const handleLogout = () => {
+    localStorage.removeItem("authToken")
+    localStorage.removeItem("user")
+    window.location.href = "/signup"
+  }
 
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -81,6 +87,13 @@ export default function Dashboard() {
           <Link href="/settings" className="text-sm font-medium text-muted-foreground">
             Settings
           </Link>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1 text-sm font-medium text-rose-600 hover:text-rose-700"
+          >
+            <LogOut className="h-4 w-4" />
+            Logout
+          </button>
         </nav>
       </header>
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">

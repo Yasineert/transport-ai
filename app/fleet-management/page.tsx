@@ -19,6 +19,8 @@ import {
   scheduleMaintenanceForVehicle,
   type Vehicle,
   type MaintenanceRecord,
+  addVehicle,
+  deleteVehicle,
 } from "@/lib/api"
 import {
   Dialog,
@@ -68,6 +70,7 @@ export default function FleetManagement() {
     status: "In Service" as Vehicle["status"],
     type: "Bus" as Vehicle["type"],
     lastMaintenance: new Date().toISOString().split("T")[0],
+    capacity: 0
   })
 
   useEffect(() => {
@@ -198,7 +201,7 @@ export default function FleetManagement() {
   }
 
   const handleAddVehicle = async () => {
-    if (!newVehicle.model || !newVehicle.type || !newVehicle.status) {
+    if (!newVehicle.model || !newVehicle.type || !newVehicle.status || !newVehicle.capacity) {
       toast({
         title: "Missing information",
         description: "Please fill in all required fields.",
@@ -209,19 +212,17 @@ export default function FleetManagement() {
 
     try {
       setSubmitting(true)
-      // Generate a unique ID for the new vehicle
-      const vehicleId = `V${Math.floor(Math.random() * 1000)
-        .toString()
-        .padStart(3, "0")}`
+      
+      // Call the API to add the vehicle
+      const addedVehicle = await addVehicle({
+        model: newVehicle.model,
+        status: newVehicle.status,
+        type: newVehicle.type,
+        lastMaintenance: newVehicle.lastMaintenance,
+        capacity: newVehicle.capacity
+      })
 
-      const addedVehicle = {
-        ...newVehicle,
-        id: vehicleId,
-        currentRoute: null,
-        driver: null,
-      }
-
-      // Update local state
+      // Update local state with the response from the API
       setVehicles((prev) => [...prev, addedVehicle])
 
       toast({
@@ -235,6 +236,7 @@ export default function FleetManagement() {
         status: "In Service",
         type: "Bus",
         lastMaintenance: new Date().toISOString().split("T")[0],
+        capacity: 0
       })
     } catch (err) {
       console.error("Failed to add vehicle:", err)
@@ -255,8 +257,9 @@ export default function FleetManagement() {
 
     try {
       setSubmitting(true)
-      // In a real app, this would call an API to delete the vehicle
-      // For now, we'll just update the local state
+      
+      // Call the API to delete the vehicle
+      await deleteVehicle(vehicleToDelete.id)
 
       // Remove from local state
       setVehicles((prev) => prev.filter((v) => v.id !== vehicleToDelete.id))
@@ -732,6 +735,19 @@ export default function FleetManagement() {
                   <SelectItem value="Taxi">Taxi</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="vehicle-capacity" className="text-right">
+                Capacity
+              </Label>
+              <Input
+                id="vehicle-capacity"
+                type="number"
+                value={newVehicle.capacity}
+                onChange={(e) => setNewVehicle({ ...newVehicle, capacity: parseInt(e.target.value) || 0 })}
+                className="col-span-3"
+                placeholder="e.g. 40"
+              />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="vehicle-status" className="text-right">

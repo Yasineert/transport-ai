@@ -2,15 +2,14 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
-import { Toaster } from "@/components/ui/toaster"
-import { AuthCheck } from "@/components/auth-check"
+import { ClientLayout } from "./client-layout"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "Marrakech Transport System",
   description: "Intelligent public transport management system for Marrakech",
-    generator: 'v0.dev'
+  generator: 'v0.dev'
 }
 
 export default function RootLayout({
@@ -21,13 +20,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <AuthCheck>{children}</AuthCheck>
-        <Toaster />
+        <ClientLayout>{children}</ClientLayout>
       </body>
     </html>
   )
 }
-
-
 
 import './globals.css'
