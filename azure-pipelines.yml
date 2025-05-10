@@ -61,44 +61,66 @@ stages:
         publishLocation: 'Container'
       displayName: 'Publish Next.js Build'
 
-- stage: Deploy_Development
-  displayName: 'Deploy to Development'
+- stage: Package_Development
+  displayName: 'Package for Development'
   dependsOn: Build
   condition: and(succeeded(), eq(variables.isDev, true))
   jobs:
-  - job: DeployDev
-    displayName: 'Deploy to Dev Environment'
+  - job: Package
+    displayName: 'Create Deployment Package'
     steps:
     - download: current
       artifact: 'next-build'
       displayName: 'Download Build Artifacts'
     
-    - task: AzureWebApp@1
+    - script: |
+        mkdir -p $(Build.ArtifactStagingDirectory)/deploy
+        cp -r $(Pipeline.Workspace)/next-build/* $(Build.ArtifactStagingDirectory)/deploy/
+        cp package.json $(Build.ArtifactStagingDirectory)/deploy/
+        cp pnpm-lock.yaml $(Build.ArtifactStagingDirectory)/deploy/
+        echo "Starting command: pnpm start" > $(Build.ArtifactStagingDirectory)/deploy/start.sh
+        chmod +x $(Build.ArtifactStagingDirectory)/deploy/start.sh
+      displayName: 'Prepare Deployment Package'
+    
+    - task: PublishBuildArtifacts@1
       inputs:
-        azureSubscription: 'Azure Development'
-        appType: 'webAppLinux'
-        appName: 'transport-system-dev'
-        package: '$(Pipeline.Workspace)/next-build'
-        startUpCommand: 'pnpm start'
-      displayName: 'Deploy to Azure Web App Development'
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/deploy'
+        ArtifactName: 'development-deployment'
+        publishLocation: 'Container'
+      displayName: 'Publish Deployment Package'
+    
+    - script: |
+        echo "##vso[task.complete result=Succeeded;]Development deployment package ready for manual deployment."
+      displayName: 'Deployment Ready'
 
-- stage: Deploy_Production
-  displayName: 'Deploy to Production'
+- stage: Package_Production
+  displayName: 'Package for Production'
   dependsOn: Build
   condition: and(succeeded(), eq(variables.isMain, true))
   jobs:
-  - job: DeployProd
-    displayName: 'Deploy to Production Environment'
+  - job: Package
+    displayName: 'Create Production Package'
     steps:
     - download: current
       artifact: 'next-build'
       displayName: 'Download Build Artifacts'
 
-    - task: AzureWebApp@1
+    - script: |
+        mkdir -p $(Build.ArtifactStagingDirectory)/deploy
+        cp -r $(Pipeline.Workspace)/next-build/* $(Build.ArtifactStagingDirectory)/deploy/
+        cp package.json $(Build.ArtifactStagingDirectory)/deploy/
+        cp pnpm-lock.yaml $(Build.ArtifactStagingDirectory)/deploy/
+        echo "Starting command: NODE_ENV=production pnpm start" > $(Build.ArtifactStagingDirectory)/deploy/start.sh
+        chmod +x $(Build.ArtifactStagingDirectory)/deploy/start.sh
+      displayName: 'Prepare Production Package'
+    
+    - task: PublishBuildArtifacts@1
       inputs:
-        azureSubscription: 'Azure Production'
-        appType: 'webAppLinux'
-        appName: 'transport-system'
-        package: '$(Pipeline.Workspace)/next-build'
-        startUpCommand: 'pnpm start'
-      displayName: 'Deploy to Azure Web App Production' 
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/deploy'
+        ArtifactName: 'production-deployment'
+        publishLocation: 'Container'
+      displayName: 'Publish Production Package'
+    
+    - script: |
+        echo "##vso[task.complete result=Succeeded;]Production deployment package ready for manual deployment."
+      displayName: 'Deployment Ready' 
