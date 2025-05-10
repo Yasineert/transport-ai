@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transport-frontend
+  labels:
+    app: transport-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: transport-frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: transport-frontend
+    spec:
+      containers:
+      - name: transport-frontend
+        image: transport-frontend:latest
+        ports:
+        - containerPort: 3000
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 20
+          periodSeconds: 15
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: BACKEND_URL
+          value: "http://transport-backend-service:8081"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transport-frontend-service
+spec:
+  selector:
+    app: transport-frontend
+  ports:
+  - port: 80
+    targetPort: 3000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: transport-frontend-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - transport.example.com
+    secretName: transport-tls
+  rules:
+  - host: transport.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: transport-frontend-service
+            port:
+              number: 80 
