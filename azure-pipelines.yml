@@ -34,16 +34,16 @@ stages:
       displayName: 'Show Node.js and npm versions'
 
     - script: |
-        # Clean installation
+        REM Clean installation
         echo "Cleaning existing directories..."
         if exist node_modules rmdir /s /q node_modules
         if exist .next rmdir /s /q .next
         
-        # Install dependencies directly with npm
+        REM Install dependencies with legacy peer deps flag
         echo "Installing dependencies with npm..."
-        npm install
+        npm install --legacy-peer-deps
         
-        # Check installation
+        REM Check installation
         echo "Checking installation..."
         dir node_modules
       displayName: 'Install Dependencies'
@@ -59,17 +59,17 @@ stages:
       continueOnError: true
 
     - script: |
-        # Make sure Next.js dependencies are installed
-        npm install --no-save next
+        REM Make sure Next.js dependencies are installed
+        npm install --no-save next --legacy-peer-deps
         npx next -v || echo "Next.js not installed properly"
         
-        # Skip linting for now but report success
+        REM Skip linting for now but report success
         node -e "console.log('Linting skipped for pipeline - will be run during development'); process.exit(0);"
       displayName: 'Run Linting'
       continueOnError: true
 
     - script: |
-        # Run test script directly with node
+        REM Run test script directly with node
         node -e "console.log('Running tests - no tests configured yet'); process.exit(0);"
       displayName: 'Run Tests'
       continueOnError: true
@@ -87,13 +87,13 @@ stages:
     - script: |
         echo "Building application..."
         
-        # Try to build with Next.js
+        REM Try to build with Next.js
         npm run build || echo "Build failed, creating placeholder"
         
-        # Create .next directory if it doesn't exist
+        REM Create .next directory if it doesn't exist
         if not exist .next mkdir .next
         
-        # Create a simple placeholder file if build fails
+        REM Create a simple placeholder file if build fails
         if not exist .next\index.js echo console.log('This is a placeholder build created by the pipeline'); > .next\index.js
         
         echo "Build completed or placeholder created"
@@ -119,12 +119,17 @@ stages:
     - checkout: self
       
     - script: |
+        REM Create deployment package directory
         if not exist $(Build.ArtifactStagingDirectory)\deploy mkdir $(Build.ArtifactStagingDirectory)\deploy
         copy package.json $(Build.ArtifactStagingDirectory)\deploy\ || echo "package.json not found"
         copy pnpm-lock.yaml $(Build.ArtifactStagingDirectory)\deploy\ || echo "pnpm-lock.yaml not found"
+        
+        REM Create placeholder Next.js build
         if not exist $(Build.ArtifactStagingDirectory)\deploy\.next mkdir $(Build.ArtifactStagingDirectory)\deploy\.next
         echo console.log('This is a placeholder build created by the pipeline'); > $(Build.ArtifactStagingDirectory)\deploy\.next\index.js
-        echo Starting command: pnpm install ^&^& pnpm start > $(Build.ArtifactStagingDirectory)\deploy\start.cmd
+        
+        REM Create startup script
+        echo npm install --legacy-peer-deps ^&^& npm start > $(Build.ArtifactStagingDirectory)\deploy\start.cmd
       displayName: 'Prepare Deployment Package'
     
     - task: PublishBuildArtifacts@1
@@ -149,12 +154,17 @@ stages:
     - checkout: self
       
     - script: |
+        REM Create deployment package directory
         if not exist $(Build.ArtifactStagingDirectory)\deploy mkdir $(Build.ArtifactStagingDirectory)\deploy
         copy package.json $(Build.ArtifactStagingDirectory)\deploy\ || echo "package.json not found"
         copy pnpm-lock.yaml $(Build.ArtifactStagingDirectory)\deploy\ || echo "pnpm-lock.yaml not found"
+        
+        REM Create placeholder Next.js build
         if not exist $(Build.ArtifactStagingDirectory)\deploy\.next mkdir $(Build.ArtifactStagingDirectory)\deploy\.next
         echo console.log('This is a placeholder build created by the pipeline'); > $(Build.ArtifactStagingDirectory)\deploy\.next\index.js
-        echo set NODE_ENV=production ^&^& pnpm install ^&^& pnpm start > $(Build.ArtifactStagingDirectory)\deploy\start.cmd
+        
+        REM Create startup script
+        echo set NODE_ENV=production ^&^& npm install --legacy-peer-deps ^&^& npm start > $(Build.ArtifactStagingDirectory)\deploy\start.cmd
       displayName: 'Prepare Production Package'
     
     - task: PublishBuildArtifacts@1
