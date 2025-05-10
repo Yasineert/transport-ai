@@ -67,8 +67,7 @@ stages:
 
     - script: |
         # Run test script directly with node
-        node -e "console.log('Running tests - no tests configured yet')"
-        echo "Test completed with mock success"
+        node -e "console.log('Running tests - no tests configured yet'); process.exit(0);"
       displayName: 'Run Tests'
       continueOnError: true
     
