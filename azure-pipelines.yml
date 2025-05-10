@@ -66,45 +66,39 @@ stages:
   dependsOn: Build
   condition: and(succeeded(), eq(variables.isDev, true))
   jobs:
-  - deployment: DeployDev
-    environment: 'development'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - download: current
-            artifact: 'next-build'
-            displayName: 'Download Build Artifacts'
-          
-          - task: AzureWebApp@1
-            inputs:
-              azureSubscription: 'Azure Development'
-              appType: 'webAppLinux'
-              appName: 'transport-system-dev'
-              package: '$(Pipeline.Workspace)/next-build'
-              startUpCommand: 'pnpm start'
-            displayName: 'Deploy to Azure Web App Development'
+  - job: DeployDev
+    displayName: 'Deploy to Dev Environment'
+    steps:
+    - download: current
+      artifact: 'next-build'
+      displayName: 'Download Build Artifacts'
+    
+    - task: AzureWebApp@1
+      inputs:
+        azureSubscription: 'Azure Development'
+        appType: 'webAppLinux'
+        appName: 'transport-system-dev'
+        package: '$(Pipeline.Workspace)/next-build'
+        startUpCommand: 'pnpm start'
+      displayName: 'Deploy to Azure Web App Development'
 
 - stage: Deploy_Production
   displayName: 'Deploy to Production'
   dependsOn: Build
   condition: and(succeeded(), eq(variables.isMain, true))
   jobs:
-  - deployment: DeployProd
-    environment: 'production'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - download: current
-            artifact: 'next-build'
-            displayName: 'Download Build Artifacts'
+  - job: DeployProd
+    displayName: 'Deploy to Production Environment'
+    steps:
+    - download: current
+      artifact: 'next-build'
+      displayName: 'Download Build Artifacts'
 
-          - task: AzureWebApp@1
-            inputs:
-              azureSubscription: 'Azure Production'
-              appType: 'webAppLinux'
-              appName: 'transport-system'
-              package: '$(Pipeline.Workspace)/next-build'
-              startUpCommand: 'pnpm start'
-            displayName: 'Deploy to Azure Web App Production' 
+    - task: AzureWebApp@1
+      inputs:
+        azureSubscription: 'Azure Production'
+        appType: 'webAppLinux'
+        appName: 'transport-system'
+        package: '$(Pipeline.Workspace)/next-build'
+        startUpCommand: 'pnpm start'
+      displayName: 'Deploy to Azure Web App Production' 
