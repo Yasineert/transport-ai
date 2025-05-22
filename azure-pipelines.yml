@@ -9,12 +9,17 @@ trigger:
       - docs/*
 
 pool:
-  name: 'Default'
   vmImage: 'ubuntu-latest'
 
 variables:
   isMain: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
   isDev: $[eq(variables['Build.SourceBranch'], 'refs/heads/development')]
+  dockerRegistryServiceConnection: 'your-registry-connection'
+  imageRepository: 'system-transport'
+  containerRegistry: 'your-registry.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+  azureSubscription: 'your-azure-subscription'
 
 stages:
 - stage: Build
@@ -28,6 +33,7 @@ stages:
       displayName: 'Install Node.js'
 
     - script: |
+        echo "📝 Documentation: Setting up Node.js environment"
         echo Node.js and npm versions:
         node -v
         npm -v
@@ -38,29 +44,31 @@ stages:
       displayName: 'Install pnpm'
 
     - script: |
+        echo "📝 Documentation: Installing project dependencies"
         echo Cleaning existing directories...
-        if exist node_modules rmdir /s /q node_modules
-        if exist .next rmdir /s /q .next
+        rm -rf node_modules
+        rm -rf .next
         
         echo Installing dependencies with pnpm...
-        pnpm install --no-frozen-lockfile
+        pnpm install --frozen-lockfile
         
         echo Checking installation...
-        dir node_modules
+        ls -la node_modules
       displayName: 'Install Dependencies'
       
     - script: |
-        echo Running linting...
-        echo Skipping linting for CI pipeline
-        node -e "console.log('Linting skipped for pipeline'); process.exit(0);"
-      displayName: 'Run Linting'
-      continueOnError: true
+        echo "📝 Documentation: Running ESLint for code quality"
+        echo Running linting with ESLint...
+        pnpm lint
+      displayName: 'Run ESLint'
+      continueOnError: false
 
     - script: |
-        echo Running tests...
-        node -e "console.log('Running tests - no tests configured yet'); process.exit(0);"
-      displayName: 'Run Tests'
-      continueOnError: true
+        echo "📝 Documentation: Running Jest unit tests"
+        echo Running tests with Jest...
+        pnpm test:ci
+      displayName: 'Run Jest Tests'
+      continueOnError: false
     
     - task: PublishTestResults@2
       inputs:
@@ -70,21 +78,12 @@ stages:
         testRunTitle: 'Unit Tests'
       displayName: 'Publish Test Results'
       condition: succeededOrFailed()
-      continueOnError: true
 
     - script: |
+        echo "📝 Documentation: Building Next.js application"
         echo Building application...
-        
-        echo Trying to build with pnpm...
-        pnpm build || echo Build failed, creating placeholder
-        
-        echo Creating placeholder if needed...
-        if not exist .next mkdir .next
-        if not exist .next\index.js echo console.log('This is a placeholder build'); > .next\index.js
-        
-        echo Build completed or placeholder created
+        pnpm build
       displayName: 'Build Application'
-      continueOnError: true
 
     - task: PublishBuildArtifacts@1
       inputs:
@@ -92,74 +91,128 @@ stages:
         ArtifactName: 'next-build'
         publishLocation: 'Container'
       displayName: 'Publish Next.js Build'
-      continueOnError: true
 
-- stage: Package_Development
-  displayName: 'Package for Development'
+- stage: Docker
+  displayName: 'Docker Build and Push'
   dependsOn: Build
   condition: succeeded()
   jobs:
-  - job: Package
-    displayName: 'Create Deployment Package'
+  - job: DockerBuildPush
+    displayName: 'Build and Push Docker Image'
     steps:
     - checkout: self
       
-    - script: |
-        echo Creating deployment package directory...
-        if not exist $(Build.ArtifactStagingDirectory)\deploy mkdir $(Build.ArtifactStagingDirectory)\deploy
-        copy package.json $(Build.ArtifactStagingDirectory)\deploy\ || echo package.json not found
-        copy pnpm-lock.yaml $(Build.ArtifactStagingDirectory)\deploy\ || echo pnpm-lock.yaml not found
-        
-        echo Creating placeholder Next.js build...
-        if not exist $(Build.ArtifactStagingDirectory)\deploy\.next mkdir $(Build.ArtifactStagingDirectory)\deploy\.next
-        echo console.log('This is a placeholder build created by the pipeline'); > $(Build.ArtifactStagingDirectory)\deploy\.next\index.js
-        
-        echo Creating startup script...
-        echo npm install -g pnpm ^&^& pnpm install ^&^& pnpm start > $(Build.ArtifactStagingDirectory)\deploy\start.cmd
-      displayName: 'Prepare Deployment Package'
-    
-    - task: PublishBuildArtifacts@1
+    - task: Docker@2
+      displayName: 'Build Docker image'
       inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)/deploy'
-        ArtifactName: 'development-deployment'
-        publishLocation: 'Container'
-      displayName: 'Publish Deployment Package'
-    
+        command: build
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+          latest
+          
+    - task: Docker@2
+      displayName: 'Push Docker image'
+      inputs:
+        command: push
+        repository: $(imageRepository)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+          latest
+          
     - script: |
-        echo ##vso[task.complete result=Succeeded;]Development deployment package ready for manual deployment.
-      displayName: 'Deployment Ready'
+        echo "📝 Documentation: Docker image built and pushed to registry"
+        echo "Image: $(containerRegistry)/$(imageRepository):$(tag)"
+        echo "Image: $(containerRegistry)/$(imageRepository):latest"
+      displayName: 'Log Docker Image Details'
 
-- stage: Package_Production
-  displayName: 'Package for Production'
-  dependsOn: Build
+- stage: Deploy
+  displayName: 'Continuous Deployment'
+  dependsOn: Docker
+  condition: and(succeeded(), eq(variables.isMain, true))
+  jobs:
+  - job: DeployToAzure
+    displayName: 'Deploy to Azure Web App'
+    steps:
+    - checkout: self
+    
+    - task: AzureWebApp@1
+      displayName: 'Deploy to Azure Web App'
+      inputs:
+        azureSubscription: $(azureSubscription)
+        appType: 'webAppContainer'
+        appName: 'system-transport-app'
+        deployToSlotOrASE: true
+        resourceGroupName: 'system-transport-rg'
+        slotName: 'production'
+        containers: '$(containerRegistry)/$(imageRepository):$(tag)'
+        
+    - script: |
+        echo "📝 Documentation: Application deployed to Azure Web App"
+        echo "App URL: https://system-transport-app.azurewebsites.net"
+      displayName: 'Log Deployment Details'
+      
+- stage: Monitoring
+  displayName: 'Monitoring and Logging'
+  dependsOn: Deploy
   condition: succeeded()
   jobs:
-  - job: Package
-    displayName: 'Create Production Package'
+  - job: SetupMonitoring
+    displayName: 'Setup Monitoring'
     steps:
-    - checkout: self
-      
     - script: |
-        echo Creating deployment package directory...
-        if not exist $(Build.ArtifactStagingDirectory)\deploy mkdir $(Build.ArtifactStagingDirectory)\deploy
-        copy package.json $(Build.ArtifactStagingDirectory)\deploy\ || echo package.json not found
-        copy pnpm-lock.yaml $(Build.ArtifactStagingDirectory)\deploy\ || echo pnpm-lock.yaml not found
+        echo "📝 Documentation: Setting up monitoring and logging"
+        echo "Setting up monitoring placeholder (to be replaced with Prometheus)"
+        echo "Creating monitoring configuration..."
+        mkdir -p $(Build.ArtifactStagingDirectory)/monitoring
         
-        echo Creating placeholder Next.js build...
-        if not exist $(Build.ArtifactStagingDirectory)\deploy\.next mkdir $(Build.ArtifactStagingDirectory)\deploy\.next
-        echo console.log('This is a placeholder build created by the pipeline'); > $(Build.ArtifactStagingDirectory)\deploy\.next\index.js
+        echo "# Prometheus Configuration Placeholder" > $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+        echo "scrape_configs:" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+        echo "  - job_name: 'system-transport'" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+        echo "    static_configs:" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+        echo "      - targets: ['system-transport-app:3000']" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
         
-        echo Creating startup script...
-        echo set NODE_ENV=production ^&^& npm install -g pnpm ^&^& pnpm install ^&^& pnpm start > $(Build.ArtifactStagingDirectory)\deploy\start.cmd
-      displayName: 'Prepare Production Package'
-    
+        echo "# Logging Configuration Placeholder" > $(Build.ArtifactStagingDirectory)/monitoring/logging.yml
+        echo "Application deployed and ready for monitoring setup"
+      displayName: 'Configure Monitoring'
+      
     - task: PublishBuildArtifacts@1
       inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)/deploy'
-        ArtifactName: 'production-deployment'
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/monitoring'
+        ArtifactName: 'monitoring-config'
         publishLocation: 'Container'
-      displayName: 'Publish Production Package'
-    
+      displayName: 'Publish Monitoring Configuration'
+
+- stage: Documentation
+  displayName: 'Pipeline Documentation'
+  dependsOn: []
+  condition: succeeded()
+  jobs:
+  - job: GenerateDocumentation
+    displayName: 'Generate Pipeline Documentation'
+    steps:
     - script: |
-        echo ##vso[task.complete result=Succeeded;]Production deployment package ready for manual deployment.
-      displayName: 'Deployment Ready' 
+        echo "📚 System Transport CI/CD Pipeline Documentation"
+        echo "================================================"
+        echo ""
+        echo "This pipeline performs the following steps:"
+        echo "1. 🔍 Linting: ESLint is used to ensure code quality"
+        echo "2. 🧪 Testing: Jest unit tests are executed"
+        echo "3. 🏗️ Building: Next.js application is built"
+        echo "4. 🐳 Docker: Application is containerized and image pushed to registry"
+        echo "5. 🚀 Deployment: Continuous deployment to Azure Web App"
+        echo "6. 📊 Monitoring: Placeholder for Prometheus monitoring setup"
+        echo ""
+        echo "Pipeline last updated: $(date)"
+      displayName: 'Generate Documentation'
+      
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(System.DefaultWorkingDirectory)'
+        ArtifactName: 'pipeline-documentation'
+        publishLocation: 'Container'
+      displayName: 'Publish Documentation'
+      enabled: false  # Disabled as this is just for demonstration
