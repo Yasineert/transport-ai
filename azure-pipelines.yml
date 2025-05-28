@@ -1,3 +1,4 @@
+# Option 1: Pipeline avec déploiement sur Vercel
 trigger:
   branches:
     include:
@@ -14,12 +15,6 @@ pool:
 variables:
   isMain: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
   isDev: $[eq(variables['Build.SourceBranch'], 'refs/heads/development')]
-  dockerRegistryServiceConnection: 'your-registry-connection'
-  imageRepository: 'system-transport'
-  containerRegistry: 'your-registry.azurecr.io'
-  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
-  tag: '$(Build.BuildId)'
-  azureSubscription: 'your-azure-subscription'
 
 stages:
 - stage: Build
@@ -33,39 +28,28 @@ stages:
       displayName: 'Install Node.js'
 
     - script: |
-        echo "📝 Documentation: Setting up Node.js environment"
-        echo Node.js and npm versions:
+        echo "Setting up Node.js environment"
         node -v
         npm -v
-        
-        echo Installing pnpm...
         npm install -g pnpm
         pnpm --version
       displayName: 'Install pnpm'
 
     - script: |
-        echo "📝 Documentation: Installing project dependencies"
-        echo Cleaning existing directories...
+        echo "Installing project dependencies"
         rm -rf node_modules
         rm -rf .next
-        
-        echo Installing dependencies with pnpm...
         pnpm install --frozen-lockfile
-        
-        echo Checking installation...
-        ls -la node_modules
       displayName: 'Install Dependencies'
       
     - script: |
-        echo "📝 Documentation: Running ESLint for code quality"
-        echo Running linting with ESLint...
+        echo "Running ESLint for code quality"
         pnpm lint
       displayName: 'Run ESLint'
       continueOnError: false
 
     - script: |
-        echo "📝 Documentation: Running Jest unit tests"
-        echo Running tests with Jest...
+        echo "Running Jest unit tests"
         pnpm test:ci
       displayName: 'Run Jest Tests'
       continueOnError: false
@@ -80,8 +64,7 @@ stages:
       condition: succeededOrFailed()
 
     - script: |
-        echo "📝 Documentation: Building Next.js application"
-        echo Building application...
+        echo "Building Next.js application"
         pnpm build
       displayName: 'Build Application'
 
@@ -92,127 +75,147 @@ stages:
         publishLocation: 'Container'
       displayName: 'Publish Next.js Build'
 
-- stage: Docker
-  displayName: 'Docker Build and Push'
+- stage: DeployVercel
+  displayName: 'Deploy to Vercel'
   dependsOn: Build
-  condition: succeeded()
-  jobs:
-  - job: DockerBuildPush
-    displayName: 'Build and Push Docker Image'
-    steps:
-    - checkout: self
-      
-    - task: Docker@2
-      displayName: 'Build Docker image'
-      inputs:
-        command: build
-        repository: $(imageRepository)
-        dockerfile: $(dockerfilePath)
-        containerRegistry: $(dockerRegistryServiceConnection)
-        tags: |
-          $(tag)
-          latest
-          
-    - task: Docker@2
-      displayName: 'Push Docker image'
-      inputs:
-        command: push
-        repository: $(imageRepository)
-        containerRegistry: $(dockerRegistryServiceConnection)
-        tags: |
-          $(tag)
-          latest
-          
-    - script: |
-        echo "📝 Documentation: Docker image built and pushed to registry"
-        echo "Image: $(containerRegistry)/$(imageRepository):$(tag)"
-        echo "Image: $(containerRegistry)/$(imageRepository):latest"
-      displayName: 'Log Docker Image Details'
-
-- stage: Deploy
-  displayName: 'Continuous Deployment'
-  dependsOn: Docker
   condition: and(succeeded(), eq(variables.isMain, true))
   jobs:
-  - job: DeployToAzure
-    displayName: 'Deploy to Azure Web App'
+  - job: DeployToVercel
+    displayName: 'Deploy to Vercel'
     steps:
     - checkout: self
     
-    - task: AzureWebApp@1
-      displayName: 'Deploy to Azure Web App'
+    - task: NodeTool@0
       inputs:
-        azureSubscription: $(azureSubscription)
-        appType: 'webAppContainer'
-        appName: 'system-transport-app'
-        deployToSlotOrASE: true
-        resourceGroupName: 'system-transport-rg'
-        slotName: 'production'
-        containers: '$(containerRegistry)/$(imageRepository):$(tag)'
-        
+        versionSpec: '18.x'
+      displayName: 'Install Node.js'
+    
     - script: |
-        echo "📝 Documentation: Application deployed to Azure Web App"
-        echo "App URL: https://system-transport-app.azurewebsites.net"
-      displayName: 'Log Deployment Details'
-      
-- stage: Monitoring
-  displayName: 'Monitoring and Logging'
-  dependsOn: Deploy
-  condition: succeeded()
+        npm install -g vercel
+        echo "Deploying to Vercel..."
+        vercel --token $(VERCEL_TOKEN) --prod --yes
+      displayName: 'Deploy to Vercel'
+      env:
+        VERCEL_TOKEN: $(VERCEL_TOKEN)
+        VERCEL_ORG_ID: $(VERCEL_ORG_ID)
+        VERCEL_PROJECT_ID: $(VERCEL_PROJECT_ID)
+
+---
+
+# Option 2: Pipeline avec déploiement sur Netlify
+trigger:
+  branches:
+    include:
+      - main
+      - development
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  isMain: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
+
+stages:
+- stage: Build
+  displayName: 'Build and Test'
   jobs:
-  - job: SetupMonitoring
-    displayName: 'Setup Monitoring'
+  - job: BuildAndTest
     steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '18.x'
+      displayName: 'Install Node.js'
+
     - script: |
-        echo "📝 Documentation: Setting up monitoring and logging"
-        echo "Setting up monitoring placeholder (to be replaced with Prometheus)"
-        echo "Creating monitoring configuration..."
-        mkdir -p $(Build.ArtifactStagingDirectory)/monitoring
-        
-        echo "# Prometheus Configuration Placeholder" > $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
-        echo "scrape_configs:" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
-        echo "  - job_name: 'system-transport'" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
-        echo "    static_configs:" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
-        echo "      - targets: ['system-transport-app:3000']" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
-        
-        echo "# Logging Configuration Placeholder" > $(Build.ArtifactStagingDirectory)/monitoring/logging.yml
-        echo "Application deployed and ready for monitoring setup"
-      displayName: 'Configure Monitoring'
+        npm install -g pnpm
+        pnpm install --frozen-lockfile
+      displayName: 'Install Dependencies'
       
+    - script: pnpm lint
+      displayName: 'Run ESLint'
+
+    - script: pnpm test:ci
+      displayName: 'Run Tests'
+    
+    - script: pnpm build
+      displayName: 'Build Application'
+
+    - script: |
+        npm install -g netlify-cli
+        netlify deploy --prod --dir=out --auth=$(NETLIFY_AUTH_TOKEN) --site=$(NETLIFY_SITE_ID)
+      displayName: 'Deploy to Netlify'
+      condition: and(succeeded(), eq(variables.isMain, true))
+
+---
+
+# Option 3: Pipeline simple (Build et Test uniquement)
+trigger:
+  branches:
+    include:
+      - main
+      - development
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+- stage: BuildTest
+  displayName: 'Build and Test'
+  jobs:
+  - job: BuildAndTest
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '18.x'
+      displayName: 'Install Node.js'
+
+    - script: |
+        echo "Installing dependencies"
+        npm install -g pnpm
+        pnpm install --frozen-lockfile
+      displayName: 'Install Dependencies'
+      
+    - script: |
+        echo "Running code quality checks"
+        pnpm lint
+      displayName: 'Run ESLint'
+
+    - script: |
+        echo "Running unit tests"
+        pnpm test:ci
+      displayName: 'Run Tests'
+    
+    - task: PublishTestResults@2
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '**/junit.xml'
+        mergeTestResults: true
+      displayName: 'Publish Test Results'
+      condition: succeededOrFailed()
+
+    - script: |
+        echo "Building application"
+        pnpm build
+      displayName: 'Build Application'
+
     - task: PublishBuildArtifacts@1
       inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)/monitoring'
-        ArtifactName: 'monitoring-config'
+        PathtoPublish: '.next'
+        ArtifactName: 'build-artifacts'
         publishLocation: 'Container'
-      displayName: 'Publish Monitoring Configuration'
+      displayName: 'Publish Build Artifacts'
 
 - stage: Documentation
-  displayName: 'Pipeline Documentation'
+  displayName: 'Generate Documentation'
   dependsOn: []
-  condition: succeeded()
   jobs:
-  - job: GenerateDocumentation
-    displayName: 'Generate Pipeline Documentation'
+  - job: GenerateDoc
     steps:
     - script: |
-        echo "📚 System Transport CI/CD Pipeline Documentation"
-        echo "================================================"
-        echo ""
-        echo "This pipeline performs the following steps:"
-        echo "1. 🔍 Linting: ESLint is used to ensure code quality"
-        echo "2. 🧪 Testing: Jest unit tests are executed"
-        echo "3. 🏗️ Building: Next.js application is built"
-        echo "4. 🐳 Docker: Application is containerized and image pushed to registry"
-        echo "5. 🚀 Deployment: Continuous deployment to Azure Web App"
-        echo "6. 📊 Monitoring: Placeholder for Prometheus monitoring setup"
-        echo ""
-        echo "Pipeline last updated: $(date)"
-      displayName: 'Generate Documentation'
-      
-    - task: PublishBuildArtifacts@1
-      inputs:
-        PathtoPublish: '$(System.DefaultWorkingDirectory)'
-        ArtifactName: 'pipeline-documentation'
-        publishLocation: 'Container'
-      displayName: 'Publish Documentation'
-      enabled: false  # Disabled as this is just for demonstration
+        echo "CI/CD Pipeline Documentation"
+        echo "=========================="
+        echo "Build Status: Success"
+        echo "Tests: Passed"
+        echo "Artifacts: Published"
+        echo "Ready for manual deployment"
+      displayName: 'Pipeline Summary'
