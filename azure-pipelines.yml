@@ -43,7 +43,8 @@ stages:
 
         - script: |
             echo "📦 Installing dependencies"
-            pnpm install
+            pnpm install --no-frozen-lockfile
+
           displayName: 'Install Dependencies'
 
         - script: |
