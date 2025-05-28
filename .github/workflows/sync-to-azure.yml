@@ -2,29 +2,40 @@ name: Sync to Azure DevOps
 
 on:
   push:
-    branches:
-      - main  # أو بدّلها باسم البرانش ديالك
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
 
 jobs:
-  sync:
+  sync-to-azure:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure Git
-        run: |
-          git config --global user.email "yassineouhadi99@gmail.com"
-          git config --global user.name "Yasineert"
+    - name: Configure Git
+      run: |
+        git config --global user.name "mohamedyacineouhadi"
+        git config --global user.email "your-email@example.com"
 
-      - name: Add Azure remote and push
-        run: |
-          if git remote | grep -q '^azure$'; then
-            git remote remove azure
-          fi
-          git remote add azure https://$AZURE_USERNAME:$AZURE_PAT@dev.azure.com/OTHMANIHASNA/transport-ai/_git/transport-ai
-          git push azure --mirror
-        env:
-          AZURE_USERNAME: ${{ secrets.AZURE_USERNAME }}
-          AZURE_PAT: ${{ secrets.AZURE_PAT }}
+    - name: Add Azure DevOps remote and push
+      run: |
+        # Ajouter le remote Azure DevOps
+        git remote add azure https://mohamedyacineouhadi:${{ secrets.AZURE_DEVOPS_PAT }}@dev.azure.com/OTHMANIHASNA/transport-ai/_git/transport-ai
+        
+        # Pousser toutes les branches
+        git push azure --all --force
+        
+        # Pousser les tags
+        git push azure --tags --force
+      env:
+        AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
+
+    - name: Notify completion
+      run: |
+        echo "✅ Successfully synced to Azure DevOps"
+        echo "📊 Pushed branches: $(git branch -r --format='%(refname:short)' | grep -v 'azure/' | wc -l)"
