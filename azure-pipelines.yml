@@ -51,7 +51,7 @@ stages:
         rm -rf .next
         
         echo Installing dependencies with pnpm...
-        pnpm install --frozen-lockfile
+        pnpm install --prefer-frozen-lockfile
         
         echo Checking installation...
         ls -la node_modules
