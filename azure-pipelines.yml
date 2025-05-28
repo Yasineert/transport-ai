@@ -14,222 +14,134 @@ pool:
 variables:
   isMain: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
   isDev: $[eq(variables['Build.SourceBranch'], 'refs/heads/development')]
-  # 🔧 CHANGEZ CES VALEURS SELON VOTRE CONFIGURATION
-  dockerRegistryServiceConnection: 'votre-nom-service-connection'  # Remplacez par le nom réel
-  imageRepository: 'system-transport'
-  containerRegistry: 'votre-registry.azurecr.io'  # Remplacez par votre ACR
-  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
-  tag: '$(Build.BuildId)'
-  azureSubscription: 'votre-azure-subscription'  # Remplacez par votre subscription
+  vercelDeployHookUrl: 'https://api.vercel.com/v1/integrations/deploy/prj_nGWbvHmsJE1l8RUN3KM34qCnFIRP/kkA5kxz29L'
+  imageName: 'system-transport'
 
 stages:
-- stage: Build
-  displayName: 'Build and Test'
+
+# CI: Lint, Test, Build
+- stage: BuildAndTest
+  displayName: 'Build & Test'
   jobs:
-  - job: BuildAndTest
-    steps:
-    - task: NodeTool@0
-      inputs:
-        versionSpec: '18.x'
-      displayName: 'Install Node.js'
+    - job: CI
+      displayName: 'Lint, Test, Build'
+      steps:
+        - task: NodeTool@0
+          inputs:
+            versionSpec: '18.x'
+          displayName: 'Install Node.js'
 
-    - script: |
-        echo "📝 Documentation: Setting up Node.js environment"
-        echo Node.js and npm versions:
-        node -v
-        npm -v
-        
-        echo Installing pnpm...
-        npm install -g pnpm
-        pnpm --version
-      displayName: 'Install pnpm'
+        - script: |
+            npm install -g pnpm
+            pnpm --version
+          displayName: 'Install pnpm'
 
-    - script: |
-        echo "📝 Documentation: Installing project dependencies"
-        echo Cleaning existing directories...
-        rm -rf node_modules
-        rm -rf .next
-        
-        echo Installing dependencies with pnpm...
-        pnpm install --prefer-frozen-lockfile
-        
-        echo Checking installation...
-        ls -la node_modules
-      displayName: 'Install Dependencies'
-      
-    - script: |
-        echo "📝 Documentation: Running ESLint for code quality"
-        echo Running linting with ESLint...
-        pnpm lint
-      displayName: 'Run ESLint'
-      continueOnError: false
+        - script: |
+            echo "🧼 Clean project"
+            rm -rf node_modules .next
+          displayName: 'Clean Workspace'
 
-    - script: |
-        echo "📝 Documentation: Running Jest unit tests"
-        echo Running tests with Jest...
-        pnpm test:ci
-      displayName: 'Run Jest Tests'
-      continueOnError: false
-    
-    - task: PublishTestResults@2
-      inputs:
-        testResultsFormat: 'JUnit'
-        testResultsFiles: '**/junit.xml'
-        mergeTestResults: true
-        testRunTitle: 'Unit Tests'
-      displayName: 'Publish Test Results'
-      condition: succeededOrFailed()
+        - script: |
+            echo "📦 Installing dependencies"
+            pnpm install
+          displayName: 'Install Dependencies'
 
-    - script: |
-        echo "📝 Documentation: Building Next.js application"
-        echo Building application...
-        pnpm build
-      displayName: 'Build Application'
+        - script: |
+            echo "🔍 Linting"
+            pnpm lint
+          displayName: 'Run ESLint'
 
-    - task: PublishBuildArtifacts@1
-      inputs:
-        PathtoPublish: '.next'
-        ArtifactName: 'next-build'
-        publishLocation: 'Container'
-      displayName: 'Publish Next.js Build'
+        - script: |
+            echo "🧪 Running unit tests"
+            pnpm test:ci
+          displayName: 'Run Jest Tests'
 
+        - task: PublishTestResults@2
+          inputs:
+            testResultsFormat: 'JUnit'
+            testResultsFiles: '**/junit.xml'
+            mergeTestResults: true
+            testRunTitle: 'Unit Tests'
+          displayName: 'Publish Test Results'
+          condition: succeededOrFailed()
+
+        - script: |
+            echo "🏗️ Build Next.js"
+            pnpm build
+          displayName: 'Build App'
+
+# Docker Build
 - stage: Docker
-  displayName: 'Docker Build and Push'
-  dependsOn: Build
+  displayName: 'Build Docker Image (Local)'
+  dependsOn: BuildAndTest
   condition: succeeded()
   jobs:
-  - job: DockerBuildPush
-    displayName: 'Build and Push Docker Image'
-    steps:
-    - checkout: self
-      
-    # 🔧 Tâche Docker corrigée avec gestion d'erreur
-    - task: Docker@2
-      displayName: 'Build Docker image'
-      inputs:
-        command: build
-        repository: $(imageRepository)
-        dockerfile: $(dockerfilePath)
-        containerRegistry: $(dockerRegistryServiceConnection)
-        tags: |
-          $(tag)
-          latest
-      # 🔧 Ajout de conditions pour debug
-      continueOnError: false
-      
-    - task: Docker@2
-      displayName: 'Push Docker image'
-      inputs:
-        command: push
-        repository: $(imageRepository)
-        containerRegistry: $(dockerRegistryServiceConnection)
-        tags: |
-          $(tag)
-          latest
-      continueOnError: false
-          
-    - script: |
-        echo "📝 Documentation: Docker image built and pushed to registry"
-        echo "Image: $(containerRegistry)/$(imageRepository):$(tag)"
-        echo "Image: $(containerRegistry)/$(imageRepository):latest"
-      displayName: 'Log Docker Image Details'
+    - job: BuildDocker
+      displayName: 'Build Docker Image'
+      steps:
+        - script: |
+            echo "🐳 Building Docker image..."
+            docker build -t $(imageName):$(Build.BuildId) -f Dockerfile .
+            docker images
+          displayName: 'Build Docker Image Locally'
 
-- stage: Deploy
-  displayName: 'Continuous Deployment'
+# Deploy to Vercel
+- stage: DeployToVercel
+  displayName: 'Deploy to Vercel'
   dependsOn: Docker
   condition: and(succeeded(), eq(variables.isMain, true))
   jobs:
-  - job: DeployToAzure
-    displayName: 'Deploy to Azure Web App'
-    steps:
-    - checkout: self
-    
-    - task: AzureWebApp@1
-      displayName: 'Deploy to Azure Web App'
-      inputs:
-        azureSubscription: $(azureSubscription)
-        appType: 'webAppContainer'
-        appName: 'system-transport-app'  # 🔧 Remplacez par le nom réel de votre Web App
-        deployToSlotOrASE: true
-        resourceGroupName: 'system-transport-rg'  # 🔧 Remplacez par votre Resource Group
-        slotName: 'production'
-        containers: '$(containerRegistry)/$(imageRepository):$(tag)'
-        
-    - script: |
-        echo "📝 Documentation: Application deployed to Azure Web App"
-        echo "App URL: https://system-transport-app.azurewebsites.net"
-      displayName: 'Log Deployment Details'
+    - job: TriggerVercel
+      displayName: 'Trigger Vercel Deploy Hook'
+      steps:
+        - script: |
+            echo "🚀 Triggering Vercel deployment..."
+            curl -X POST $(vercelDeployHookUrl)
+          displayName: 'Call Vercel Hook'
 
-# 🔧 Ajout d'un stage de validation pour vérifier les service connections
-- stage: Validation
-  displayName: 'Validate Configuration'
-  dependsOn: []
-  condition: always()
-  jobs:
-  - job: ValidateConfig
-    displayName: 'Validate Service Connections'
-    steps:
-    - script: |
-        echo "🔍 Validation des configurations:"
-        echo "Service Connection: $(dockerRegistryServiceConnection)"
-        echo "Container Registry: $(containerRegistry)"
-        echo "Azure Subscription: $(azureSubscription)"
-        echo "Image Repository: $(imageRepository)"
-        echo ""
-        echo "⚠️ Vérifiez que ces valeurs correspondent à votre configuration Azure!"
-      displayName: 'Display Configuration'
-      
+# Monitoring Placeholder
 - stage: Monitoring
-  displayName: 'Monitoring and Logging'
-  dependsOn: Deploy
+  displayName: 'Monitoring & Logging'
+  dependsOn: DeployToVercel
   condition: succeeded()
   jobs:
-  - job: SetupMonitoring
-    displayName: 'Setup Monitoring'
-    steps:
-    - script: |
-        echo "📝 Documentation: Setting up monitoring and logging"
-        echo "Setting up monitoring placeholder (to be replaced with Prometheus)"
-        echo "Creating monitoring configuration..."
-        mkdir -p $(Build.ArtifactStagingDirectory)/monitoring
-        
-        echo "# Prometheus Configuration Placeholder" > $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
-        echo "scrape_configs:" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
-        echo "  - job_name: 'system-transport'" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
-        echo "    static_configs:" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
-        echo "      - targets: ['system-transport-app:3000']" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
-        
-        echo "# Logging Configuration Placeholder" > $(Build.ArtifactStagingDirectory)/monitoring/logging.yml
-        echo "Application deployed and ready for monitoring setup"
-      displayName: 'Configure Monitoring'
-      
-    - task: PublishBuildArtifacts@1
-      inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)/monitoring'
-        ArtifactName: 'monitoring-config'
-        publishLocation: 'Container'
-      displayName: 'Publish Monitoring Configuration'
+    - job: SetupMonitoring
+      displayName: 'Monitoring Setup'
+      steps:
+        - script: |
+            echo "📡 Placeholder: Setup Monitoring"
+            mkdir -p $(Build.ArtifactStagingDirectory)/monitoring
+            echo "# Prometheus Config Placeholder" > $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+            echo "scrape_configs:" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+            echo "  - job_name: 'system-transport'" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+            echo "    static_configs:" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+            echo "      - targets: ['localhost:3000']" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+          displayName: 'Configure Monitoring'
 
+        - task: PublishBuildArtifacts@1
+          inputs:
+            PathtoPublish: '$(Build.ArtifactStagingDirectory)/monitoring'
+            ArtifactName: 'monitoring-config'
+            publishLocation: 'Container'
+          displayName: 'Publish Monitoring Config'
+
+# Documentation
 - stage: Documentation
-  displayName: 'Pipeline Documentation'
+  displayName: 'CI/CD Documentation'
   dependsOn: []
   condition: succeeded()
   jobs:
-  - job: GenerateDocumentation
-    displayName: 'Generate Pipeline Documentation'
-    steps:
-    - script: |
-        echo "📚 System Transport CI/CD Pipeline Documentation"
-        echo "================================================"
-        echo ""
-        echo "This pipeline performs the following steps:"
-        echo "1. 🔍 Validation: Vérification des configurations"
-        echo "2. 🔍 Linting: ESLint is used to ensure code quality"
-        echo "3. 🧪 Testing: Jest unit tests are executed"
-        echo "4. 🏗️ Building: Next.js application is built"
-        echo "5. 🐳 Docker: Application is containerized and image pushed to registry"
-        echo "6. 🚀 Deployment: Continuous deployment to Azure Web App"
-        echo "7. 📊 Monitoring: Placeholder for Prometheus monitoring setup"
-        echo ""
-        echo "Pipeline last updated: $(date)"
-      displayName: 'Generate Documentation'
+    - job: Doc
+      displayName: 'Document Steps'
+      steps:
+        - script: |
+            echo "📚 Documentation de la CI/CD"
+            echo "1. ✅ Lint & Tests"
+            echo "2. 🧱 Build App"
+            echo "3. 🐳 Docker Image locale"
+            echo "4. 🚀 Déploiement Vercel via Hook"
+            echo "5. 📡 Monitoring Placeholder"
+            echo ""
+            echo "Déclenché depuis: $(Build.SourceBranch)"
+            echo "Déploiement Vercel: $(vercelDeployHookUrl)"
+          displayName: 'Log Documentation'
