@@ -20,7 +20,7 @@ jobs:
     - name: Configure Git
       run: |
         git config --global user.name "mohamedyacineouhadi"
-        git config --global user.email "your-email@example.com"
+        git config --global user.email "yassineouhadi99@gmail.com"
 
     - name: Add Azure DevOps remote and push
       run: |
