@@ -3,7 +3,7 @@ name: Sync to Azure DevOps
 on:
   push:
     branches:
-      - main  # or replace with your branch name
+      - main  # أو بدّلها باسم البرانش ديالك
 
 jobs:
   sync:
@@ -13,11 +13,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Push to Azure DevOps
+      - name: Configure Git
         run: |
           git config --global user.email "yassineouhadi99@gmail.com"
           git config --global user.name "Yasineert"
 
+      - name: Add Azure remote and push
+        run: |
+          if git remote | grep -q '^azure$'; then
+            git remote remove azure
+          fi
           git remote add azure https://$AZURE_USERNAME:$AZURE_PAT@dev.azure.com/OTHMANIHASNA/transport-ai/_git/transport-ai
           git push azure --mirror
         env:
