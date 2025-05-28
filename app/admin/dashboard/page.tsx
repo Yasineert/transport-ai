@@ -59,7 +59,7 @@ export default function AdminDashboard() {
   }
 
   if (userData.role !== 'ADMINISTRATOR') {
-    return <div className="flex justify-center items-center min-h-screen">You don't have permission to access this page</div>
+    return <div className="flex justify-center items-center min-h-screen">You don&apos;t have permission to access this page</div>
   }
 
   return (
@@ -121,4 +121,4 @@ export default function AdminDashboard() {
       </div>
     </div>
   )
-} 
+}
