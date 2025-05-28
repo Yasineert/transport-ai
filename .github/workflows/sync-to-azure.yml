@@ -1,0 +1,25 @@
+name: Sync to Azure DevOps
+
+on:
+  push:
+    branches:
+      - main  # or replace with your branch name
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Push to Azure DevOps
+        run: |
+          git config --global user.email "github-actions@bot.com"
+          git config --global user.name "GitHub Actions"
+
+          git remote add azure https://$AZURE_USERNAME:$AZURE_PAT@dev.azure.com/OTHMANIHASNA/transport-ai/_git/transport-ai
+          git push azure HEAD:main --force
+        env:
+          AZURE_USERNAME: ${{ secrets.AZURE_USERNAME }}
+          AZURE_PAT: ${{ secrets.AZURE_PAT }}
