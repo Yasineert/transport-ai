@@ -19,7 +19,7 @@ jobs:
           git config --global user.name "GitHub Actions"
 
           git remote add azure https://$AZURE_USERNAME:$AZURE_PAT@dev.azure.com/OTHMANIHASNA/transport-ai/_git/transport-ai
-          git push azure HEAD:main --force
+          git push azure --mirror
         env:
           AZURE_USERNAME: ${{ secrets.AZURE_USERNAME }}
           AZURE_PAT: ${{ secrets.AZURE_PAT }}
