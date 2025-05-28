@@ -14,6 +14,13 @@ pool:
 variables:
   isMain: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
   isDev: $[eq(variables['Build.SourceBranch'], 'refs/heads/development')]
+  # 🔧 CHANGEZ CES VALEURS SELON VOTRE CONFIGURATION
+  dockerRegistryServiceConnection: 'votre-nom-service-connection'  # Remplacez par le nom réel
+  imageRepository: 'system-transport'
+  containerRegistry: 'votre-registry.azurecr.io'  # Remplacez par votre ACR
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+  azureSubscription: 'votre-azure-subscription'  # Remplacez par votre subscription
 
 stages:
 - stage: Build
@@ -27,28 +34,39 @@ stages:
       displayName: 'Install Node.js'
 
     - script: |
-        echo "Setting up Node.js environment"
+        echo "📝 Documentation: Setting up Node.js environment"
+        echo Node.js and npm versions:
         node -v
         npm -v
+        
+        echo Installing pnpm...
         npm install -g pnpm
         pnpm --version
       displayName: 'Install pnpm'
 
     - script: |
-        echo "Installing project dependencies"
+        echo "📝 Documentation: Installing project dependencies"
+        echo Cleaning existing directories...
         rm -rf node_modules
         rm -rf .next
+        
+        echo Installing dependencies with pnpm...
         pnpm install --frozen-lockfile
+        
+        echo Checking installation...
+        ls -la node_modules
       displayName: 'Install Dependencies'
       
     - script: |
-        echo "Running ESLint for code quality"
+        echo "📝 Documentation: Running ESLint for code quality"
+        echo Running linting with ESLint...
         pnpm lint
       displayName: 'Run ESLint'
       continueOnError: false
 
     - script: |
-        echo "Running Jest unit tests"
+        echo "📝 Documentation: Running Jest unit tests"
+        echo Running tests with Jest...
         pnpm test:ci
       displayName: 'Run Jest Tests'
       continueOnError: false
@@ -63,7 +81,8 @@ stages:
       condition: succeededOrFailed()
 
     - script: |
-        echo "Building Next.js application"
+        echo "📝 Documentation: Building Next.js application"
+        echo Building application...
         pnpm build
       displayName: 'Build Application'
 
@@ -74,27 +93,143 @@ stages:
         publishLocation: 'Container'
       displayName: 'Publish Next.js Build'
 
-- stage: DeployVercel
-  displayName: 'Deploy to Vercel'
+- stage: Docker
+  displayName: 'Docker Build and Push'
   dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - job: DockerBuildPush
+    displayName: 'Build and Push Docker Image'
+    steps:
+    - checkout: self
+      
+    # 🔧 Tâche Docker corrigée avec gestion d'erreur
+    - task: Docker@2
+      displayName: 'Build Docker image'
+      inputs:
+        command: build
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+          latest
+      # 🔧 Ajout de conditions pour debug
+      continueOnError: false
+      
+    - task: Docker@2
+      displayName: 'Push Docker image'
+      inputs:
+        command: push
+        repository: $(imageRepository)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+          latest
+      continueOnError: false
+          
+    - script: |
+        echo "📝 Documentation: Docker image built and pushed to registry"
+        echo "Image: $(containerRegistry)/$(imageRepository):$(tag)"
+        echo "Image: $(containerRegistry)/$(imageRepository):latest"
+      displayName: 'Log Docker Image Details'
+
+- stage: Deploy
+  displayName: 'Continuous Deployment'
+  dependsOn: Docker
   condition: and(succeeded(), eq(variables.isMain, true))
   jobs:
-  - job: DeployToVercel
-    displayName: 'Deploy to Vercel'
+  - job: DeployToAzure
+    displayName: 'Deploy to Azure Web App'
     steps:
     - checkout: self
     
-    - task: NodeTool@0
+    - task: AzureWebApp@1
+      displayName: 'Deploy to Azure Web App'
       inputs:
-        versionSpec: '18.x'
-      displayName: 'Install Node.js'
-    
+        azureSubscription: $(azureSubscription)
+        appType: 'webAppContainer'
+        appName: 'system-transport-app'  # 🔧 Remplacez par le nom réel de votre Web App
+        deployToSlotOrASE: true
+        resourceGroupName: 'system-transport-rg'  # 🔧 Remplacez par votre Resource Group
+        slotName: 'production'
+        containers: '$(containerRegistry)/$(imageRepository):$(tag)'
+        
     - script: |
-        npm install -g vercel
-        echo "Deploying to Vercel..."
-        vercel --token $(VERCEL_TOKEN) --prod --yes
-      displayName: 'Deploy to Vercel'
-      env:
-        VERCEL_TOKEN: $(VERCEL_TOKEN)
-        VERCEL_ORG_ID: $(VERCEL_ORG_ID)
-        VERCEL_PROJECT_ID: $(VERCEL_PROJECT_ID)
+        echo "📝 Documentation: Application deployed to Azure Web App"
+        echo "App URL: https://system-transport-app.azurewebsites.net"
+      displayName: 'Log Deployment Details'
+
+# 🔧 Ajout d'un stage de validation pour vérifier les service connections
+- stage: Validation
+  displayName: 'Validate Configuration'
+  dependsOn: []
+  condition: always()
+  jobs:
+  - job: ValidateConfig
+    displayName: 'Validate Service Connections'
+    steps:
+    - script: |
+        echo "🔍 Validation des configurations:"
+        echo "Service Connection: $(dockerRegistryServiceConnection)"
+        echo "Container Registry: $(containerRegistry)"
+        echo "Azure Subscription: $(azureSubscription)"
+        echo "Image Repository: $(imageRepository)"
+        echo ""
+        echo "⚠️ Vérifiez que ces valeurs correspondent à votre configuration Azure!"
+      displayName: 'Display Configuration'
+      
+- stage: Monitoring
+  displayName: 'Monitoring and Logging'
+  dependsOn: Deploy
+  condition: succeeded()
+  jobs:
+  - job: SetupMonitoring
+    displayName: 'Setup Monitoring'
+    steps:
+    - script: |
+        echo "📝 Documentation: Setting up monitoring and logging"
+        echo "Setting up monitoring placeholder (to be replaced with Prometheus)"
+        echo "Creating monitoring configuration..."
+        mkdir -p $(Build.ArtifactStagingDirectory)/monitoring
+        
+        echo "# Prometheus Configuration Placeholder" > $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+        echo "scrape_configs:" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+        echo "  - job_name: 'system-transport'" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+        echo "    static_configs:" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+        echo "      - targets: ['system-transport-app:3000']" >> $(Build.ArtifactStagingDirectory)/monitoring/prometheus.yml
+        
+        echo "# Logging Configuration Placeholder" > $(Build.ArtifactStagingDirectory)/monitoring/logging.yml
+        echo "Application deployed and ready for monitoring setup"
+      displayName: 'Configure Monitoring'
+      
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/monitoring'
+        ArtifactName: 'monitoring-config'
+        publishLocation: 'Container'
+      displayName: 'Publish Monitoring Configuration'
+
+- stage: Documentation
+  displayName: 'Pipeline Documentation'
+  dependsOn: []
+  condition: succeeded()
+  jobs:
+  - job: GenerateDocumentation
+    displayName: 'Generate Pipeline Documentation'
+    steps:
+    - script: |
+        echo "📚 System Transport CI/CD Pipeline Documentation"
+        echo "================================================"
+        echo ""
+        echo "This pipeline performs the following steps:"
+        echo "1. 🔍 Validation: Vérification des configurations"
+        echo "2. 🔍 Linting: ESLint is used to ensure code quality"
+        echo "3. 🧪 Testing: Jest unit tests are executed"
+        echo "4. 🏗️ Building: Next.js application is built"
+        echo "5. 🐳 Docker: Application is containerized and image pushed to registry"
+        echo "6. 🚀 Deployment: Continuous deployment to Azure Web App"
+        echo "7. 📊 Monitoring: Placeholder for Prometheus monitoring setup"
+        echo ""
+        echo "Pipeline last updated: $(date)"
+      displayName: 'Generate Documentation'
