@@ -136,12 +136,12 @@ stages:
       displayName: 'Document Steps'
       steps:
         - script: |
-            echo "📚 Documentation de la CI/CD"
-            echo "1. ✅ Lint & Tests"
-            echo "2. 🧱 Build App"
-            echo "3. 🐳 Docker Image locale"
-            echo "4. 🚀 Déploiement Vercel via Hook"
-            echo "5. 📡 Monitoring Placeholder"
+            echo " Documentation de la CI/CD"
+            echo "1.  Lint & Tests"
+            echo "2.  Build App"
+            echo "3.  Docker Image locale"
+            echo "4.  Déploiement Vercel via Hook"
+            echo "5.  Monitoring Placeholder"
             echo ""
             echo "Déclenché depuis: $(Build.SourceBranch)"
             echo "Déploiement Vercel: $(vercelDeployHookUrl)"
